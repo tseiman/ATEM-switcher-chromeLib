@@ -14,10 +14,16 @@ local_seq_id = ProtoField.uint16("atemcontrol.local_seq_id", "local sequence id"
 -- ========== Command ===========
 command_len = ProtoField.uint16("atemcontrol.command_length", "command length", base.DEC)
 command_check = ProtoField.uint16("atemcontrol.command_check", "command check?", base.HEX)
--- unknown_field
-
-
 command_name = ProtoField.string("atemcontrol.command_name", "command name", base.HEX)
+
+
+cmdDecode_field__ver_major = ProtoField.uint16("atemcontrol._ver.major_version", "Major version", base.DEC)
+cmdDecode_field__ver_minor = ProtoField.uint16("atemcontrol._ver.minor_version", "Minor version", base.DEC)
+
+cmdDecode_field__pin = ProtoField.string("atemcontrol._ver.product_name", "Product name", base.NONE)
+
+  -- local child, value = maintree:add_packet_field(cmdDecode_field__ver_major,buffer(offset + 8,2), ENC_UTF_8 + ENC_STRING)
+
 
 -- ==============================
 
@@ -32,9 +38,33 @@ atemctrl_protocol.fields = {
   local_seq_id,
   command_name,
   command_len,
-  command_check
-
+  command_check,
+  cmdDecode_field__ver_major,
+  cmdDecode_field__ver_minor,
+  cmdDecode_field__pin
 }
+
+
+-- ================= command decoding Functions ==============
+
+function cmdDecode__ver(tree,buffer,len,offset)
+  tree:add(cmdDecode_field__ver_major,buffer(offset + 8,2))
+  tree:add(cmdDecode_field__ver_minor,buffer(offset + 10,2))
+end
+
+function cmdDecode__pin(tree,buffer,len,offset)
+  tree:add(cmdDecode_field__pin,buffer(offset + 8,44))
+end
+
+
+
+command_decoder_lookup = {
+  ["_ver"] = cmdDecode__ver,
+  ["_pin"] = cmdDecode__pin
+}
+
+-- ================= dissector function ==============
+
 
 function atemctrl_protocol.dissector(buffer, pinfo, tree)
   length = buffer:len()
@@ -95,7 +125,7 @@ function atemctrl_protocol.dissector(buffer, pinfo, tree)
 
   local commands_string = "";
 
-print("-------------------")
+-- print("-------------------")
 
   while command_offset < packet_len_number do
  --   if buffer(command_offset + 2,1) :uint() == 0 then 
@@ -108,8 +138,7 @@ print("-------------------")
         commands_string = commands_string .. ", " .. command_name_str
       end
   --  end
-print(command_offset)
-print(command_name_str)
+
     
     local command_len_number =  bit.band(buffer(command_offset,2):uint(), 0xffff)
     local command_check_number =  bit.band(buffer(command_offset + 2,2):uint(), 0xffff)
@@ -118,6 +147,14 @@ print(command_name_str)
     cmdtree:add(command_len,buffer(command_offset, 2), command_len_number)
     cmdtree:add(command_check,buffer(command_offset + 2, 2), command_check_number)
     cmdtree:add(command_name,buffer(command_offset + 4,4))
+
+    local cmd_decoder = command_decoder_lookup[command_name_str];
+
+    if cmd_decoder ~= nil then
+      cmd_decoder(cmdtree,buffer,command_len_number,command_offset)
+    end
+
+
     command_offset = command_offset + command_len_number
   end
 
@@ -135,6 +172,14 @@ print(command_name_str)
 
 
 end
+
+
+local udp_port = DissectorTable.get("udp.port")
+udp_port:add(9910, atemctrl_protocol)
+
+
+
+-- ================= general Functions ==============
 
 
 function set_flag_description(flags, ftree)
@@ -164,5 +209,3 @@ end
 
 
 
-local udp_port = DissectorTable.get("udp.port")
-udp_port:add(9910, atemctrl_protocol)
